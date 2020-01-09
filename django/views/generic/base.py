@@ -12,15 +12,36 @@ from django.utils.decorators import classonlymethod
 
 logger = logging.getLogger('django.request')
 
+# 定义一个 noter 对象，用于打印日志
+noter = logging.getLogger('django.notes')
+
 
 class ContextMixin:
     """
+    调用 get_context_data  函数时，返回一个经过处理的关键写参数字典
+
+    1、把 view 这个键设置为 self kwargs['view'] = self
+    2、把 extra_context 字典的内容更新到 kwargs 字典
+    3、返回 kwargs 的值
+
     A default context mixin that passes the keyword arguments received by
     get_context_data() as the template context.
     """
     extra_context = None
 
+    #
+    noter = noter.getChild("ContextMixin")
+
     def get_context_data(self, **kwargs):
+        """
+        1、为 kwargs 字典添加 wkargs['view']=self 这个值
+        2、为 extra_context 的内容也更新到 kwargs
+
+        返回处理后的 kwargs
+        """
+        noter = self.noter.getChild("get_context_data")
+        noter.debug(f"kwargs is {kwargs}")
+
         kwargs.setdefault('view', self)
         if self.extra_context is not None:
             kwargs.update(self.extra_context)
@@ -32,6 +53,7 @@ class View:
     Intentionally simple parent class for all views. Only implements
     dispatch-by-method and simple sanity checking.
     """
+    noter = noter.getChild("View")
 
     http_method_names = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'trace']
 
@@ -40,35 +62,64 @@ class View:
         Constructor. Called in the URLconf; can contain helpful extra
         keyword arguments, and other things.
         """
+        noter = self.noter.getChild("__init__")
+        noter.debug(f"kwargs is {kwargs}")
+
         # Go through keyword arguments, and either save their values to our
         # instance, or raise an error.
+
+        # 把 kwargs 里面的 key:value 更新到自己身上
         for key, value in kwargs.items():
             setattr(self, key, value)
 
     @classonlymethod
     def as_view(cls, **initkwargs):
-        """Main entry point for a request-response process."""
+        """
+        1、由 as_view 的定义可以知道，它可以接收关键字参数
+        2、
+        Main entry point for a request-response process.
+        """
+        noter = cls.noter.getChild("as_view")
+        noter.debug(f"initkwargs is {initkwargs}")
+
         for key in initkwargs:
+
+            # key 是 http 的请求方法名就报错
             if key in cls.http_method_names:
                 raise TypeError("You tried to pass in the %s method name as a "
                                 "keyword argument to %s(). Don't do that."
                                 % (key, cls.__name__))
+
+            # 如果 key 和类的属性同名了，也报错
             if not hasattr(cls, key):
                 raise TypeError("%s() received an invalid keyword %r. as_view "
                                 "only accepts arguments that are already "
                                 "attributes of the class." % (cls.__name__, key))
 
+        noter.info("all keys are valid")
+
         def view(request, *args, **kwargs):
+            inner_noter = noter.getChild("view")
+            inner_noter.debug(f"inner view function been called arsg is {args} kwargs is {kwargs} cls is {cls}")
+            # 创建出 View 的一个实例，并命名叫 self
             self = cls(**initkwargs)
+            # 如果 self 有 ‘get’ 但是没有 'head' 那么把 head 设置为 get 相同的值
             if hasattr(self, 'get') and not hasattr(self, 'head'):
                 self.head = self.get
+
+            #
             self.setup(request, *args, **kwargs)
+
+            # 检测 self 中是否有 request 属性，用这来标识 self.setup 有没有被执行
             if not hasattr(self, 'request'):
                 raise AttributeError(
                     "%s instance has no 'request' attribute. Did you override "
                     "setup() and forget to call super()?" % cls.__name__
                 )
+
+            # view 的返回值直接就是 dispatch 执行后的返回值
             return self.dispatch(request, *args, **kwargs)
+
         view.view_class = cls
         view.view_initkwargs = initkwargs
 
@@ -81,7 +132,11 @@ class View:
         return view
 
     def setup(self, request, *args, **kwargs):
-        """Initialize attributes shared by all view methods."""
+        """
+        把 request,args,kwargs 设置到 self 对象上
+
+        Initialize attributes shared by all view methods.
+        """
         self.request = request
         self.args = args
         self.kwargs = kwargs
@@ -154,6 +209,7 @@ class TemplateView(TemplateResponseMixin, ContextMixin, View):
     """
     Render a template. Pass keyword arguments from the URLconf to the context.
     """
+
     def get(self, request, *args, **kwargs):
         context = self.get_context_data(**kwargs)
         return self.render_to_response(context)
